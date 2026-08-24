@@ -22,6 +22,12 @@ BACKUP_DIR="$BACKUP_ROOT/$TIMESTAMP"
 BACKUP_CREATED='no'
 REMOVE_TEMPLATES='no'
 
+print_banner() {
+	echo "HestiaCP Node.js"
+	echo "maintained fork by Poisl"
+	echo "──────────────────────────────"
+}
+
 ensure_backup_dir() {
 	if [ "$BACKUP_CREATED" = 'no' ]; then
 		sudo mkdir -p "$BACKUP_DIR"
@@ -102,6 +108,7 @@ parse_args() {
 }
 
 main() {
+	print_banner
 	parse_args "$@"
 
 	remove_path "$INSTALLER_DIR" 'Node.js WebApp installer'
