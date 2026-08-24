@@ -14,6 +14,7 @@
 		<?php } ?>
 
 		<ul class="values-list u-mb15">
+			<input type="hidden" name="nodejs_action" id="nodejs_action_field" value="">
 			<?php if (!empty($nodejsStatusData['node_version'])) { ?>
 				<li class="values-list-item">
 					<span class="values-list-label"><?= tohtml(_('Node.js')) ?></span>
@@ -47,13 +48,13 @@
 		</ul>
 
 		<div class="toolbar-buttons">
-			<button type="submit" name="nodejs_action" value="start" class="button button-secondary" formnovalidate <?php if (!$nodejsCanStart) echo 'disabled'; ?>>
+			<button type="submit" class="button button-secondary" formnovalidate onclick="document.getElementById('nodejs_action_field').value='start'" <?php if (!$nodejsCanStart) echo 'disabled'; ?>>
 				<i class="fas fa-play icon-green"></i><?= tohtml(_('Start')) ?>
 			</button>
-			<button type="submit" name="nodejs_action" value="stop" class="button button-secondary" formnovalidate <?php if (!$nodejsCanStop) echo 'disabled'; ?>>
+			<button type="submit" class="button button-secondary" formnovalidate onclick="document.getElementById('nodejs_action_field').value='stop'" <?php if (!$nodejsCanStop) echo 'disabled'; ?>>
 				<i class="fas fa-stop icon-red"></i><?= tohtml(_('Stop')) ?>
 			</button>
-			<button type="submit" name="nodejs_action" value="restart" class="button button-secondary" formnovalidate <?php if (!$nodejsCanRestart) echo 'disabled'; ?>>
+			<button type="submit" class="button button-secondary" formnovalidate onclick="document.getElementById('nodejs_action_field').value='restart'" <?php if (!$nodejsCanRestart) echo 'disabled'; ?>>
 				<i class="fas fa-rotate-right icon-blue"></i><?= tohtml(_('Restart')) ?>
 			</button>
 		</div>
@@ -71,7 +72,7 @@
 					<input type="number" class="form-control" name="nodejs_log_lines" min="1" max="200" value="<?= tohtml((string) $nodejsLogLines) ?>">
 				</div>
 				<div>
-					<button type="submit" name="nodejs_action" value="logs" class="button button-secondary" formnovalidate>
+					<button type="submit" class="button button-secondary" formnovalidate onclick="document.getElementById('nodejs_action_field').value='logs'">
 						<i class="fas fa-file-lines icon-purple"></i><?= tohtml(_('View logs')) ?>
 					</button>
 				</div>

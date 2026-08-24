@@ -22,6 +22,10 @@ if ($_SESSION['userContext'] === 'admin' && !empty($_GET['user'])) {
 }
 $nodejsRedirectUrl = '/edit/web/?' . http_build_query($nodejsRedirectParams);
 
+$nodejsLogSessionKey = 'nodejs_log_output_' . $v_domain;
+$nodejsLogTypeSessionKey = 'nodejs_log_type_' . $v_domain;
+$nodejsLogLinesSessionKey = 'nodejs_log_lines_' . $v_domain;
+
 $nodejsConfigFile = '/home/' . $user_plain . '/web/' . $v_domain . '/private/hestiacp_nodejs_config/.conf';
 $nodejsPanelVisible = file_exists($nodejsConfigFile);
 
@@ -35,12 +39,12 @@ $nodejsActions = [
 if (!empty($_POST['nodejs_action'])) {
     verify_csrf($_POST);
 
+    // The main edit form always submits the hidden save field as well. Prevent
+    // the regular web-domain save handler from running for any Node.js action.
+    unset($_POST['save']);
+
     $nodejsAction = $_POST['nodejs_action'];
     if ($nodejsAction === 'logs') {
-        // The edit form always submits the hidden save field as well. Prevent the
-        // normal web-domain save handler from running when the user only wants logs.
-        unset($_POST['save']);
-
         $nodejsLogType = $_POST['nodejs_log_type'] ?? 'out';
         $nodejsLogLines = max(1, min(200, (int) ($_POST['nodejs_log_lines'] ?? 100)));
 
@@ -62,14 +66,16 @@ if (!empty($_POST['nodejs_action'])) {
 
         if ($return_var === 0) {
             $nodejsLogData = json_decode(implode('', $output), true);
-            $nodejsLogOutput = $nodejsLogData['output'] ?? '';
+            $_SESSION[$nodejsLogSessionKey] = $nodejsLogData['output'] ?? '';
+            $_SESSION[$nodejsLogTypeSessionKey] = $nodejsLogType;
+            $_SESSION[$nodejsLogLinesSessionKey] = $nodejsLogLines;
             unset($_SESSION['error_msg'], $_SESSION['ok_msg']);
         } else {
             $error = implode('<br>', $output);
             $_SESSION['error_msg'] = !empty($error)
                 ? $error
                 : _('Unable to load Node.js logs.');
-            $nodejsLogOutput = '';
+            unset($_SESSION[$nodejsLogSessionKey], $_SESSION[$nodejsLogTypeSessionKey], $_SESSION[$nodejsLogLinesSessionKey]);
         }
         unset($output);
     } elseif (isset($nodejsActions[$nodejsAction])) {
@@ -101,12 +107,21 @@ if (!empty($_POST['nodejs_action'])) {
     }
 
     if ($nodejsAction !== 'logs') {
-        header('Location: ' . $nodejsRedirectUrl);
-        exit();
+        unset($_SESSION[$nodejsLogSessionKey], $_SESSION[$nodejsLogTypeSessionKey], $_SESSION[$nodejsLogLinesSessionKey]);
     }
+
+    header('Location: ' . $nodejsRedirectUrl);
+    exit();
 }
 
 if ($nodejsPanelVisible) {
+    if (isset($_SESSION[$nodejsLogSessionKey])) {
+        $nodejsLogOutput = $_SESSION[$nodejsLogSessionKey];
+        $nodejsLogType = $_SESSION[$nodejsLogTypeSessionKey] ?? 'out';
+        $nodejsLogLines = $_SESSION[$nodejsLogLinesSessionKey] ?? 100;
+        unset($_SESSION[$nodejsLogSessionKey], $_SESSION[$nodejsLogTypeSessionKey], $_SESSION[$nodejsLogLinesSessionKey]);
+    }
+
     exec(
         HESTIA_CMD .
             'v-get-nodejs-app-status ' .
