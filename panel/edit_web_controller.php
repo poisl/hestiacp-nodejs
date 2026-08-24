@@ -37,6 +37,10 @@ if (!empty($_POST['nodejs_action'])) {
 
     $nodejsAction = $_POST['nodejs_action'];
     if ($nodejsAction === 'logs') {
+        // The edit form always submits the hidden save field as well. Prevent the
+        // normal web-domain save handler from running when the user only wants logs.
+        unset($_POST['save']);
+
         $nodejsLogType = $_POST['nodejs_log_type'] ?? 'out';
         $nodejsLogLines = max(1, min(200, (int) ($_POST['nodejs_log_lines'] ?? 100)));
 

@@ -55,6 +55,32 @@ When you create create the app with the installer it automatically create:
 
 5. 🚀 You are ready to install an App!!!
 
+## How to update
+
+To update an existing installation of this plugin:
+
+1. Back up your Hestia configuration and your Node.js application directories.
+2. Pull the latest repository version:
+
+	```bash
+	git pull --ff-only
+	```
+
+3. Re-run the installer:
+
+	```bash
+	sudo ./install.sh
+	```
+
+4. For domains created with older revisions of the plugin, open **Quick Install App** again for each Node.js domain and save the current settings once so the domain gets the current metadata format.
+5. Open **Edit Web Domain** and verify:
+   - status is shown
+   - start / stop / restart work
+   - logs are visible
+6. If you previously used the older `/home/<user>/hestiacp_nodejs_config` location, remove the old leftover directory only after the domain-scoped config under `web/<domain>/private/hestiacp_nodejs_config` is confirmed working.
+
+If you are updating from a very old plugin revision, review the migration section below as well.
+
 ## How to use
 
 1. Create new **user** (If you have one no need to create)

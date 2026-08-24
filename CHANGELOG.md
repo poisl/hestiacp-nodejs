@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.2.2
+
+### Added
+
+- Update instructions in `README.md` for upgrading existing plugin installations.
+
+### Changed
+
+- Improved Node.js uptime formatting to a short human-readable form such as `45s`, `12m 10s`, `3h 12m`, or `2d 4h`.
+
+### Fixed
+
+- Fixed panel log viewing so the **View logs** action no longer falls through to the normal web-domain save handler.
+- Added automatic Node.js integration cleanup to the Hestia web-domain delete flow.
+- Added panel log viewing support backed by bounded `v-get-nodejs-app-log` retrieval.
+
 ## 1.2.0
 
 ### Added

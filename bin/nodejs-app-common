@@ -93,14 +93,55 @@ nodejs_pm2_status() {
 	echo "$process_json" | jq -r '.pm2_env.status // "unknown"'
 }
 
+nodejs_format_uptime() {
+	local pm_uptime=${1:-}
+	local now_ms elapsed_seconds days hours minutes seconds
+
+	if ! [[ "$pm_uptime" =~ ^[0-9]+$ ]]; then
+		echo ''
+		return
+	fi
+
+	now_ms=$(( $(date +%s) * 1000 ))
+	if [ "$now_ms" -lt "$pm_uptime" ]; then
+		echo ''
+		return
+	fi
+
+	elapsed_seconds=$(( (now_ms - pm_uptime) / 1000 ))
+	days=$(( elapsed_seconds / 86400 ))
+	hours=$(( (elapsed_seconds % 86400) / 3600 ))
+	minutes=$(( (elapsed_seconds % 3600) / 60 ))
+	seconds=$(( elapsed_seconds % 60 ))
+
+	if [ "$elapsed_seconds" -lt 60 ]; then
+		echo "${seconds}s"
+		return
+	fi
+
+	if [ "$elapsed_seconds" -lt 3600 ]; then
+		echo "${minutes}m ${seconds}s"
+		return
+	fi
+
+	if [ "$elapsed_seconds" -lt 86400 ]; then
+		echo "${hours}h ${minutes}m"
+		return
+	fi
+
+	echo "${days}d ${hours}h"
+}
+
 nodejs_print_status() {
-	local process_json status format
+	local process_json status format uptime
 	format=${1:-text}
 	process_json="$(nodejs_pm2_process)"
 	status='stopped'
+	uptime=''
 
 	if [ -n "$process_json" ]; then
 		status="$(echo "$process_json" | jq -r '.pm2_env.status // "unknown"')"
+		uptime="$(nodejs_format_uptime "$(echo "$process_json" | jq -r '.pm2_env.pm_uptime // empty')")"
 	fi
 
 	if [ "$format" = 'json' ]; then
@@ -112,7 +153,7 @@ nodejs_print_status() {
 			--arg app_dir "$APP_DIR" \
 			--arg start_script "$START_SCRIPT" \
 			--arg pid "$(echo "$process_json" | jq -r '.pid // empty')" \
-			--arg uptime "$(echo "$process_json" | jq -r '.pm2_env.pm_uptime // empty')" \
+			--arg uptime "$uptime" \
 			--arg restart_count "$(echo "$process_json" | jq -r '.pm2_env.restart_time // empty')" \
 			--arg memory "$(echo "$process_json" | jq -r '.monit.memory // empty')" \
 			--arg cpu "$(echo "$process_json" | jq -r '.monit.cpu // empty')" \
@@ -128,7 +169,7 @@ nodejs_print_status() {
 	echo "START_SCRIPT=$START_SCRIPT"
 	if [ -n "$process_json" ]; then
 		echo "PID=$(echo "$process_json" | jq -r '.pid // empty')"
-		echo "UPTIME=$(echo "$process_json" | jq -r '.pm2_env.pm_uptime // empty')"
+		echo "UPTIME=$uptime"
 		echo "RESTART_COUNT=$(echo "$process_json" | jq -r '.pm2_env.restart_time // empty')"
 		echo "MEMORY=$(echo "$process_json" | jq -r '.monit.memory // empty')"
 		echo "CPU=$(echo "$process_json" | jq -r '.monit.cpu // empty')"
