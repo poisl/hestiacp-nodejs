@@ -1,0 +1,25 @@
+#!/bin/bash
+# info: restart a configured Node.js app
+# options: USER DOMAIN
+
+source /usr/local/hestia/bin/nodejs-app-common
+
+user=$1
+domain=$2
+
+nodejs_load_context "$user" "$domain"
+nodejs_validate_request "$@"
+nodejs_load_config
+
+status="$(nodejs_pm2_status)"
+if [ "$status" = 'missing' ] || [ "$status" = 'stopped' ] || [ "$status" = 'stopping' ]; then
+	check_result "$E_NOTEXIST" 'Node.js application is not running.'
+fi
+
+nodejs_pm2 restart "$PM2_NAME"
+check_result $? 'Failed to restart Node.js application.'
+
+nodejs_pm2 save
+check_result $? 'Failed to persist PM2 process list.'
+
+nodejs_log_action "Restarted Node.js app (Name: $PM2_NAME, Domain: $domain)."

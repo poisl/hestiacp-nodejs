@@ -1,0 +1,35 @@
+#!/bin/bash
+# info: get bounded logs for a configured Node.js app
+# options: USER DOMAIN [TYPE] [LINES] [FORMAT]
+
+source /usr/local/hestia/bin/nodejs-app-common
+
+user=$1
+domain=$2
+log_type=${3:-out}
+lines=${4:-100}
+format=${5:-text}
+
+nodejs_load_context "$user" "$domain"
+nodejs_validate_request "$user" "$domain"
+nodejs_load_config
+
+lines="$(nodejs_normalize_log_lines "$lines")"
+log_file="$(nodejs_log_file "$log_type")"
+
+log_output=''
+if [ -f "$log_file" ]; then
+	log_output="$(sudo -u "$user" -H /usr/bin/tail -n "$lines" "$log_file" 2>/dev/null || true)"
+fi
+
+if [ "$format" = 'json' ]; then
+	jq -n \
+		--arg type "$log_type" \
+		--arg lines "$lines" \
+		--arg file "$log_file" \
+		--arg output "$log_output" \
+		'{type:$type,lines:$lines,file:$file,output:$output}'
+	exit 0
+fi
+
+printf '%s' "$log_output"

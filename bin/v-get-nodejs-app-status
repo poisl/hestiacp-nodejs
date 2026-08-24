@@ -1,0 +1,14 @@
+#!/bin/bash
+# info: get status for a configured Node.js app
+# options: USER DOMAIN [FORMAT]
+
+source /usr/local/hestia/bin/nodejs-app-common
+
+user=$1
+domain=$2
+format=${3:-text}
+
+nodejs_load_context "$user" "$domain"
+nodejs_validate_request "$user" "$domain"
+nodejs_load_config
+nodejs_print_status "$format"

@@ -1,0 +1,197 @@
+#!/bin/bash
+
+NODEJS_ENTRYPOINT="ecosystem.config.js"
+
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source "$HESTIA/func/main.sh"
+# shellcheck source=/usr/local/hestia/func/domain.sh
+source "$HESTIA/func/domain.sh"
+source_conf "$HESTIA/conf/hestia.conf"
+
+nodejs_load_context() {
+	user=$1
+	domain=$2
+
+	format_domain
+
+	app_domain_path="$HOMEDIR/$user/web/$domain"
+	app_dir="$app_domain_path/private/nodeapp"
+	config_dir="$app_domain_path/private/hestiacp_nodejs_config"
+	config_file="$config_dir/.conf"
+}
+
+nodejs_validate_request() {
+	check_args '2' "$#" 'USER DOMAIN'
+	is_format_valid 'user' 'domain'
+	is_object_valid 'user' 'USER' "$user"
+	is_object_unsuspended 'user' 'USER' "$user"
+	is_dir_symlink "$HOMEDIR/$user/web"
+	is_dir_symlink "$app_domain_path"
+	is_base_domain_owner "$domain"
+	check_hestia_demo_mode
+}
+
+nodejs_load_config() {
+	if [ ! -f "$config_file" ]; then
+		check_result "$E_NOTEXIST" 'Node.js application not configured for domain.'
+	fi
+
+	# shellcheck disable=SC1090
+	source "$config_file"
+
+	if [ -z "$APP_DIR" ] || [ -z "$PM2_NAME" ] || [ -z "$PORT" ] || [ -z "$ENTRYPOINT" ]; then
+		check_result "$E_NOTEXIST" 'Node.js application configuration is incomplete.'
+	fi
+
+	entrypoint_path="$APP_DIR/$ENTRYPOINT"
+	pm2_home="${PM2_HOME:-$APP_DIR/.pm2}"
+
+	if [ ! -f "$entrypoint_path" ]; then
+		check_result "$E_NOTEXIST" 'Node.js entrypoint not found.'
+	fi
+
+	if ! [ -x /usr/local/bin/pm2 ] && ! command -v pm2 >/dev/null 2>&1; then
+		check_result "$E_NOTEXIST" 'PM2 executable not available for user.'
+	fi
+
+	pm2_bin="$(command -v pm2 2>/dev/null)"
+	if [ -z "$pm2_bin" ] && [ -x /usr/local/bin/pm2 ]; then
+		pm2_bin='/usr/local/bin/pm2'
+	fi
+}
+
+nodejs_pm2() {
+	sudo -u "$user" -H env PM2_HOME="$pm2_home" PATH="/usr/local/bin:/usr/bin:/bin" "$pm2_bin" "$@"
+}
+
+nodejs_pm2_json() {
+	local output
+	output="$(nodejs_pm2 jlist 2>/dev/null)"
+	if [ -z "$output" ]; then
+		echo '[]'
+		return
+	fi
+
+	echo "$output"
+}
+
+nodejs_pm2_process() {
+	nodejs_pm2_json | jq -c --arg name "$PM2_NAME" 'map(select(.name == $name)) | first // empty'
+}
+
+nodejs_pm2_status() {
+	local process_json
+	process_json="$(nodejs_pm2_process)"
+
+	if [ -z "$process_json" ]; then
+		echo 'missing'
+		return
+	fi
+
+	echo "$process_json" | jq -r '.pm2_env.status // "unknown"'
+}
+
+nodejs_print_status() {
+	local process_json status format
+	format=${1:-text}
+	process_json="$(nodejs_pm2_process)"
+	status='stopped'
+
+	if [ -n "$process_json" ]; then
+		status="$(echo "$process_json" | jq -r '.pm2_env.status // "unknown"')"
+	fi
+
+	if [ "$format" = 'json' ]; then
+		jq -n \
+			--arg status "$status" \
+			--arg node_version "$NODE_VERSION" \
+			--arg port "$PORT" \
+			--arg pm2_name "$PM2_NAME" \
+			--arg app_dir "$APP_DIR" \
+			--arg start_script "$START_SCRIPT" \
+			--arg pid "$(echo "$process_json" | jq -r '.pid // empty')" \
+			--arg uptime "$(echo "$process_json" | jq -r '.pm2_env.pm_uptime // empty')" \
+			--arg restart_count "$(echo "$process_json" | jq -r '.pm2_env.restart_time // empty')" \
+			--arg memory "$(echo "$process_json" | jq -r '.monit.memory // empty')" \
+			--arg cpu "$(echo "$process_json" | jq -r '.monit.cpu // empty')" \
+			'{status:$status,node_version:$node_version,port:$port,pm2_name:$pm2_name,app_dir:$app_dir,start_script:$start_script,pid:$pid,uptime:$uptime,restart_count:$restart_count,memory:$memory,cpu:$cpu}'
+		return
+	fi
+
+	echo "STATUS=$status"
+	echo "NODE_VERSION=$NODE_VERSION"
+	echo "PORT=$PORT"
+	echo "PM2_NAME=$PM2_NAME"
+	echo "APP_DIR=$APP_DIR"
+	echo "START_SCRIPT=$START_SCRIPT"
+	if [ -n "$process_json" ]; then
+		echo "PID=$(echo "$process_json" | jq -r '.pid // empty')"
+		echo "UPTIME=$(echo "$process_json" | jq -r '.pm2_env.pm_uptime // empty')"
+		echo "RESTART_COUNT=$(echo "$process_json" | jq -r '.pm2_env.restart_time // empty')"
+		echo "MEMORY=$(echo "$process_json" | jq -r '.monit.memory // empty')"
+		echo "CPU=$(echo "$process_json" | jq -r '.monit.cpu // empty')"
+	fi
+}
+
+nodejs_log_action() {
+	$BIN/v-log-action "$user" 'Info' 'Web' "$1"
+	log_event "$OK" "$ARGUMENTS"
+}
+
+nodejs_normalize_log_lines() {
+	local lines=${1:-100}
+	if ! [[ "$lines" =~ ^[0-9]+$ ]]; then
+		lines=100
+	fi
+	if [ "$lines" -lt 1 ]; then
+		lines=1
+	fi
+	if [ "$lines" -gt 200 ]; then
+		lines=200
+	fi
+		echo "$lines"
+}
+
+nodejs_log_file() {
+	local log_type=$1
+	case "$log_type" in
+		out)
+			echo "$pm2_home/logs/$PM2_NAME-out.log"
+			;;
+		err)
+			echo "$pm2_home/logs/$PM2_NAME-error.log"
+			;;
+		*)
+			check_result "$E_INVALID" 'Invalid Node.js log type.'
+			;;
+	esac
+}
+
+nodejs_remove_file() {
+	local path=$1
+	if [ -f "$path" ]; then
+		$BIN/v-delete-fs-file "$user" "$path"
+		check_result $? "Failed to remove file $path"
+	fi
+}
+
+nodejs_remove_directory() {
+	local path=$1
+	if [ -d "$path" ]; then
+		$BIN/v-delete-fs-directory "$user" "$path"
+		check_result $? "Failed to remove directory $path"
+	fi
+}
+
+nodejs_reset_templates() {
+	if [ "$WEB_SYSTEM" = 'nginx' ]; then
+		$BIN/v-change-web-domain-tpl "$user" "$domain" default
+		check_result $? 'Failed to restore default web template.'
+		return
+	fi
+
+	$BIN/v-change-web-domain-proxy-tpl "$user" "$domain" default
+	check_result $? 'Failed to restore default proxy template.'
+}

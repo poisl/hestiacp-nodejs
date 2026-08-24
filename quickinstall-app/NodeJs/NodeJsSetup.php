@@ -1,150 +1,286 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Hestia\WebApp\Installers\NodeJs;
 
-use \Hestia\WebApp\Installers\BaseSetup as BaseSetup;
-use \Hestia\WebApp\Installers\NodeJs\NodeJsUtils\NodeJsPaths as NodeJsPaths;
-use \Hestia\WebApp\Installers\NodeJs\NodeJsUtils\NodeJsUtil as NodeJsUtil;
 use Hestia\System\HestiaApp;
+use Hestia\WebApp\BaseSetup;
+use Hestia\WebApp\InstallationTarget\InstallationTarget;
+use Hestia\WebApp\Installers\NodeJs\NodeJsUtils\NodeJsPaths;
+use Hestia\WebApp\Installers\NodeJs\NodeJsUtils\NodeJsUtil;
+use RuntimeException;
+use Symfony\Component\Process\Process;
 
-class NodeJsSetup extends BaseSetup {
+use function file_exists;
+use function sprintf;
+use function str_replace;
+use function trim;
 
-	protected const TEMPLATE_PROXY_VARS = ['%nginx_port%'];
-	protected const TEMPLATE_ENTRYPOINT_VARS = ['%app_name%', '%app_start_script%', '%app_cwd%'];
+class NodeJsSetup extends BaseSetup
+{
+    protected const TEMPLATE_PROXY_VARS = ['%nginx_port%'];
+    protected const TEMPLATE_ENTRYPOINT_VARS = ['%app_name%', '%app_start_script%', '%app_cwd%'];
 
-	protected $nodeJsPaths;
-	protected $nodeJsUtils;
-    protected $appInfo = [ 
+    protected array $info = [
         'name' => 'NodeJs',
         'group' => 'node',
-        'enabled' => true,
         'version' => '1.0.0',
-        'thumbnail' => 'nodejs.png'
+        'thumbnail' => 'nodejs.png',
     ];
-    protected $appname = 'NodeJs';
-    protected $config = [
+
+    protected array $config = [
         'form' => [
-            'node_version' => [ 
+            'node_version' => [
                 'type' => 'select',
-                'options' => ['v20.10.0', 'v18.18.2', 'v16.20.2'],
+                'value' => '22',
+                'options' => ['20', '22', '24'],
             ],
-            'start_script' => ['type'=>'text', 'placeholder'=>'npm run start'],
-            'port' => ['type' => 'text', 'placeholder' => '3000'],
+            'start_script' => [
+                'type' => 'text',
+                'placeholder' => 'npm start',
+            ],
+            'port' => [
+                'type' => 'text',
+                'placeholder' => '3000',
+            ],
         ],
         'database' => false,
+        'resources' => [],
         'server' => [
+            'nginx' => [
+                'template' => 'NodeJS',
+            ],
             'php' => [
-                'supported' => [ '7.2','7.3','7.4','8.0','8.1','8.2' ],
-            ]
+                'supported' => ['8.2', '8.3', '8.4', '8.5'],
+            ],
         ],
     ];
 
-	public function __construct($domain, HestiaApp $appcontext) {
-		parent::__construct($domain, $appcontext);
+    private NodeJsPaths $nodeJsPaths;
+    private NodeJsUtil $nodeJsUtils;
 
-		$this->nodeJsPaths = new NodeJsPaths($appcontext);
-		$this->nodeJsUtils = new NodeJsUtil($appcontext);
-	}
-	
-    public function install(array $options = null) {
-		$this->createAppDir();
-		$this->createConfDir();
-		$this->createAppEntryPoint($options);
-		$this->createAppNvmVersion($options);
-		$this->createAppEnv($options);
-		$this->createPublicHtmlConfigFile();
-		$this->createAppProxyTemplates($options);
-		$this->createAppConfig($options);
-		$this->pm2StartApp();
+    public function __construct(HestiaApp $appcontext)
+    {
+        parent::__construct($appcontext);
 
-		return true;
+        $this->nodeJsPaths = new NodeJsPaths();
+        $this->nodeJsUtils = new NodeJsUtil();
     }
 
-	public function createAppEntryPoint(array $options = null) {
-		$templateReplaceVars = [$this->domain, trim($options['start_script']), $this->nodeJsPaths->getAppDir($this->domain)];
-		
-		$data = $this->nodeJsUtils->parseTemplate($this->nodeJsPaths->getAppEntrypointTemplate(), self::TEMPLATE_ENTRYPOINT_VARS, $templateReplaceVars);
-		$tmpFile = $this->saveTempFile(implode($data));
+    protected function setupApplication(InstallationTarget $target, array $options): void
+    {
+        $port = $this->normalizePort($options['port'] ?? '');
+        $startScript = $this->normalizeRequiredOption($options['start_script'] ?? '', 'start script');
+        $nodeVersion = $this->normalizeRequiredOption($options['node_version'] ?? '', 'Node.js version');
+        $domain = $target->domain->domainName;
+        $domainPath = $target->domain->domainPath;
+        $this->createAppDir($domainPath);
+        $this->createConfDir($domainPath);
+        $this->createAppEntryPoint($domain, $domainPath, $startScript);
+        $this->createAppNvmVersion($domainPath, $nodeVersion);
+        $this->createAppEnv($domainPath, $port);
+        $this->createPublicHtmlConfigFile($target);
+        $this->createAppProxyTemplates($domainPath, $port);
+        $this->createAppConfig($domain, $domainPath, $port, $startScript, $nodeVersion);
+        $this->applyWebTemplates($domain);
+        $this->pm2StartApp($domain);
+    }
 
-		return $this->nodeJsUtils->moveFile(
-			$tmpFile, 
-			$this->nodeJsPaths->getAppEntryPoint($this->domain)
-		);
-	}
+    private function createAppEntryPoint(string $domain, string $domainPath, string $startScript): void
+    {
+        $pm2Name = $this->createPm2Name($domain);
 
-	public function createAppNvmVersion($options) {
-		$tmpFile = $this->saveTempFile($options['node_version']);
+        $contents = $this->nodeJsUtils->parseTemplate(
+            $this->nodeJsPaths->getAppEntrypointTemplate(),
+            self::TEMPLATE_ENTRYPOINT_VARS,
+            [
+                $pm2Name,
+                $startScript,
+                $this->nodeJsPaths->getAppDir($domainPath),
+            ],
+        );
 
-		return $this->nodeJsUtils->moveFile(
-			$tmpFile, 
-			$this->nodeJsPaths->getAppDir($this->domain, '.nvmrc')
-		);
-	}
+        $this->appcontext->createFile(
+            $this->nodeJsPaths->getAppEntryPoint($domainPath),
+            $contents,
+        );
+    }
 
-	public function createAppEnv($options) {
-		$data = 'PORT="'. trim($options['port']) . '"';
-		
-		$tmpFile = $this->saveTempFile($data);
+    private function createAppNvmVersion(string $domainPath, string $nodeVersion): void
+    {
+        $this->appcontext->createFile(
+            $this->nodeJsPaths->getAppDir($domainPath, '.nvmrc'),
+            $nodeVersion,
+        );
+    }
 
-		return $this->nodeJsUtils->moveFile(
-			$tmpFile, 
-			$this->nodeJsPaths->getAppDir($this->domain, '.env')
-		);
-	}
+    private function createAppEnv(string $domainPath, string $port): void
+    {
+        $this->appcontext->createFile(
+            $this->nodeJsPaths->getAppDir($domainPath, '.env'),
+            'PORT="' . $port . '"',
+        );
+    }
 
-	public function createAppProxyTemplates(array $options = null) {
-		$tplReplace = [trim($options['port'])];
+    private function createAppProxyTemplates(string $domainPath, string $port): void
+    {
+        $replace = [$port];
 
-		$proxyData = $this->nodeJsUtils->parseTemplate(
-			$this->nodeJsPaths->getNodeJsProxyTemplate(), 
-			self::TEMPLATE_PROXY_VARS, 
-			$tplReplace
-		);
-		$proxyFallbackData = $this->nodeJsUtils->parseTemplate(
-			$this->nodeJsPaths->getNodeJsProxyFallbackTemplate(), 
-			self::TEMPLATE_PROXY_VARS,
-			$tplReplace
-		);
+        $this->appcontext->createFile(
+            $this->nodeJsPaths->getAppProxyConfig($domainPath),
+            $this->nodeJsUtils->parseTemplate(
+                $this->nodeJsPaths->getNodeJsProxyTemplate(),
+                self::TEMPLATE_PROXY_VARS,
+                $replace,
+            ),
+        );
 
-		$tmpProxyFile = $this->saveTempFile(implode($proxyData));
-		$tmpProxyFallbackFile = $this->saveTempFile(implode($proxyFallbackData));
+        $this->appcontext->createFile(
+            $this->nodeJsPaths->getAppProxyFallbackConfig($domainPath),
+            $this->nodeJsUtils->parseTemplate(
+                $this->nodeJsPaths->getNodeJsProxyFallbackTemplate(),
+                self::TEMPLATE_PROXY_VARS,
+                $replace,
+            ),
+        );
+    }
 
-		$this->nodeJsUtils->moveFile(
-			$tmpProxyFile, 
-			$this->nodeJsPaths->getAppProxyConfig($this->domain)
-		);
-		$this->nodeJsUtils->moveFile(
-			$tmpProxyFallbackFile, 
-			$this->nodeJsPaths->getAppProxyFallbackConfig($this->domain)
-		);
-	}
+    private function createAppConfig(
+        string $domain,
+        string $domainPath,
+        string $port,
+        string $startScript,
+        string $nodeVersion,
+    ): void {
+        $appDir = $this->nodeJsPaths->getAppDir($domainPath);
+        $config = implode("\n", [
+            $this->formatConfigValue('DOMAIN', $domain),
+            $this->formatConfigValue('PORT', $port),
+            $this->formatConfigValue('NODE_VERSION', $nodeVersion),
+            $this->formatConfigValue('APP_NAME', $domain),
+            $this->formatConfigValue('APP_DIR', $appDir),
+            $this->formatConfigValue('START_SCRIPT', $startScript),
+            $this->formatConfigValue('ENTRYPOINT', $this->nodeJsPaths->getAppEntryPointFileName()),
+            $this->formatConfigValue('PM2_NAME', $this->createPm2Name($domain)),
+            $this->formatConfigValue('PM2_HOME', $appDir . '/.pm2'),
+        ]) . "\n";
 
-	public function createAppConfig(array $options = null) {
-		$config = 'PORT=' . trim($options['port']) . '|START_SCRIPT="' . trim($options['start_script']) . '"|NODE_VERSION=' . trim($options['node_version']);
-		$file = $this->saveTempFile($config);
+        $this->appcontext->createFile(
+            $this->nodeJsPaths->getConfigFile($domainPath),
+            $config,
+        );
+    }
 
-		return $this->nodeJsUtils->moveFile(
-			$file, 
-			$this->nodeJsPaths->getConfigFile($this->domain)
-		);
-	}
+    private function createPublicHtmlConfigFile(InstallationTarget $target): void
+    {
+        // Leave a marker so the domain is no longer considered a clean install target.
+        $this->appcontext->createFile($target->getDocRoot('app.conf'), "\n");
+    }
 
-	public function createPublicHtmlConfigFile() {
-		// This file is created for hestia to detect that there is an installed app when you try to install other app
-		$this->appcontext->runUser('v-add-fs-file', [$this->getDocRoot('app.conf')]);
-	}
+    private function createAppDir(string $domainPath): void
+    {
+        $appDir = $this->nodeJsPaths->getAppDir($domainPath);
+        if (!file_exists($appDir)) {
+            $this->appcontext->addDirectory($appDir);
+        }
+    }
 
-	public function createAppDir() {
-		$this->nodeJsUtils->createDir($this->nodeJsPaths->getAppDir($this->domain));
-	}
+    private function createConfDir(string $domainPath): void
+    {
+        $directories = [
+            $this->nodeJsPaths->getConfigDir($domainPath),
+        ];
 
-	public function createConfDir() {
-		$this->nodeJsUtils->createDir($this->nodeJsPaths->getConfigDir());
-		$this->nodeJsUtils->createDir($this->nodeJsPaths->getConfigDir('/web'));
-		$this->nodeJsUtils->createDir($this->nodeJsPaths->getDomainConfigDir($this->domain));
-	}
+        foreach ($directories as $directory) {
+            if (!file_exists($directory)) {
+                $this->appcontext->addDirectory($directory);
+            }
+        }
+    }
 
-	public function pm2StartApp() {
-		return $this->appcontext->runUser('v-add-pm2-app', [$this->domain, $this->nodeJsPaths->getAppEntryPointFileName()]);
-	}
+    private function pm2StartApp(string $domain): void
+    {
+        if (!file_exists('/usr/local/hestia/bin/v-add-nodejs-app')) {
+            throw new RuntimeException('Node.js PM2 integration command is not installed');
+        }
+
+        $this->runHestiaCommand(
+            '/usr/local/hestia/bin/v-add-nodejs-app',
+            [$domain],
+            'Failed to start Node.js application with PM2: %s',
+        );
+    }
+
+    private function applyWebTemplates(string $domain): void
+    {
+        if (($_SESSION['WEB_SYSTEM'] ?? '') === 'nginx') {
+            return;
+        }
+
+        if (!file_exists('/usr/local/hestia/bin/v-change-web-domain-proxy-tpl')) {
+            throw new RuntimeException('Node.js proxy template command is not installed');
+        }
+
+        $this->runHestiaCommand(
+            '/usr/local/hestia/bin/v-change-web-domain-proxy-tpl',
+            [$domain, 'NodeJS'],
+            'Failed to apply Node.js proxy template: %s',
+        );
+    }
+
+    private function runHestiaCommand(string $command, array $arguments, string $errorMessage): void
+    {
+        $process = new Process([
+            '/usr/bin/sudo',
+            $command,
+            $this->appcontext->user(),
+            ...$arguments,
+        ]);
+        $process->setTimeout(300);
+        $process->run();
+
+        if (!$process->isSuccessful()) {
+            throw new RuntimeException(sprintf($errorMessage, trim($process->getErrorOutput())));
+        }
+    }
+
+    private function normalizePort(string $port): string
+    {
+        $port = trim($port);
+
+        if ($port === '' || !ctype_digit($port)) {
+            throw new RuntimeException('Node.js port must be a numeric value');
+        }
+
+        $portNumber = (int) $port;
+        if ($portNumber < 1024 || $portNumber > 65535) {
+            throw new RuntimeException('Node.js port must be between 1024 and 65535');
+        }
+
+        return $port;
+    }
+
+    private function normalizeRequiredOption(string $value, string $label): string
+    {
+        $value = trim($value);
+
+        if ($value === '') {
+            throw new RuntimeException(sprintf('Node.js %s is required', $label));
+        }
+
+        return str_replace(["\r", "\n"], '', $value);
+    }
+
+    private function createPm2Name(string $domain): string
+    {
+        $baseName = 'hestia-' . $this->appcontext->user() . '-' . $domain;
+
+        return (string) preg_replace('/[^a-z0-9.-]+/i', '-', $baseName);
+    }
+
+    private function formatConfigValue(string $key, string $value): string
+    {
+        return sprintf("%s='%s'", $key, str_replace("'", "'\\''", $value));
+    }
 }

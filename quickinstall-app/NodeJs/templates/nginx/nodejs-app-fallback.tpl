@@ -1,3 +1,3 @@
 location @fallback {
-	proxy_pass http://127.0.0.1:%nginx_port%:/$1;
+	proxy_pass http://127.0.0.1:%nginx_port%;
 }

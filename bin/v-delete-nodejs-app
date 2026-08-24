@@ -1,0 +1,28 @@
+#!/bin/bash
+# info: delete configured Node.js integration for a domain without deleting app data
+# options: USER DOMAIN
+
+source /usr/local/hestia/bin/nodejs-app-common
+
+user=$1
+domain=$2
+
+nodejs_load_context "$user" "$domain"
+nodejs_validate_request "$@"
+nodejs_load_config
+
+status="$(nodejs_pm2_status)"
+if [ "$status" != 'missing' ]; then
+	nodejs_pm2 delete "$PM2_NAME"
+	check_result $? 'Failed to delete Node.js PM2 process.'
+
+	nodejs_pm2 save
+	check_result $? 'Failed to persist PM2 process list.'
+fi
+
+nodejs_reset_templates
+nodejs_remove_file "$app_domain_path/public_html/app.conf"
+nodejs_remove_directory "$config_dir"
+nodejs_remove_directory "$pm2_home"
+
+nodejs_log_action "Deleted Node.js app integration (Name: $PM2_NAME, Domain: $domain)."

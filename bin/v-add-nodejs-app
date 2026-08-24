@@ -1,0 +1,30 @@
+#!/bin/bash
+# info: add a Node.js app to PM2
+# options: USER DOMAIN
+
+source /usr/local/hestia/bin/nodejs-app-common
+
+user=$1
+domain=$2
+
+nodejs_load_context "$user" "$domain"
+nodejs_validate_request "$@"
+nodejs_load_config
+
+status="$(nodejs_pm2_status)"
+if [ "$status" = 'online' ]; then
+	check_result "$E_EXISTS" 'Node.js application already running.'
+fi
+
+if [ "$status" = 'stopped' ] || [ "$status" = 'stopping' ] || [ "$status" = 'errored' ]; then
+	nodejs_pm2 restart "$PM2_NAME"
+	check_result $? 'Failed to start existing Node.js PM2 process.'
+else
+	nodejs_pm2 start "$entrypoint_path"
+	check_result $? 'Failed to add Node.js application to PM2.'
+fi
+
+nodejs_pm2 save
+check_result $? 'Failed to persist PM2 process list.'
+
+nodejs_log_action "Added Node.js app to PM2 (Name: $PM2_NAME, Domain: $domain)."

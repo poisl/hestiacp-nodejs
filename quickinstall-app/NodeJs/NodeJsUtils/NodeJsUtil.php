@@ -1,44 +1,24 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Hestia\WebApp\Installers\NodeJs\NodeJsUtils;
 
-use Hestia\System\HestiaApp;
+use RuntimeException;
 
-class NodeJsUtil {
+use function file_get_contents;
+use function str_replace;
 
-	protected $appcontext;
+class NodeJsUtil
+{
+    public function parseTemplate(string $template, array $search, array $replace): string
+    {
+        $contents = file_get_contents($template);
 
-	public function __construct(HestiaApp $appcontext) {
-		$this->appcontext = $appcontext;
-	}
+        if ($contents === false) {
+            throw new RuntimeException('Unable to read template: ' . $template);
+        }
 
-	public function createDir(string $dir) {
-		$result = null;
-		
-		if (!is_dir($dir)) {
-			$this->appcontext->runUser('v-add-fs-directory', [$dir], $result);
-		}
-
-		return $result;
-	}
-	public function moveFile(string $fileA, string $fileB) {
-		$result = null;
-		
-		if (!$this->appcontext->runUser('v-move-fs-file', [$fileA, $fileB], $result)) {
-			throw new \Exception("Error updating file in: " . $fileA . " " . $result->text);
-		}
-
-		return $result;
-	}
-	public function parseTemplate($template, $search, $replace): array {
-		$data = [];
-		
-		$file = fopen($template, 'r');
-		while ($l = fgets($file)) {
-			$data[] = str_replace($search, $replace, $l);
-		}
-		fclose($file);
-
-		return $data;
-	}
+        return str_replace($search, $replace, $contents);
+    }
 }
