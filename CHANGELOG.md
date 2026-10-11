@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.2.3
+
+### Fixed
+
+- Included Hestia's per-domain nginx configuration fragments in the `NodeJS` HTTP and HTTPS proxy templates so HTTP-01 challenges reach Hestia's temporary Let's Encrypt validation handler instead of the Node.js application.
+
 ## 1.2.2
 
 ### Added

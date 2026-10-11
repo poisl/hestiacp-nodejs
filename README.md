@@ -72,12 +72,18 @@ To update an existing installation of this plugin:
 	sudo ./install.sh
 	```
 
-4. For domains created with older revisions of the plugin, open **Quick Install App** again for each Node.js domain and save the current settings once so the domain gets the current metadata format.
-5. Open **Edit Web Domain** and verify:
+4. When updating to version 1.2.3 or newer, rebuild each existing Node.js domain so its generated nginx configuration includes Hestia's Let's Encrypt validation fragments:
+
+	```bash
+	sudo /usr/local/hestia/bin/v-rebuild-web-domain <user> <domain> yes
+	```
+
+5. For domains created with older revisions of the plugin, open **Quick Install App** again for each Node.js domain and save the current settings once so the domain gets the current metadata format.
+6. Open **Edit Web Domain** and verify:
    - status is shown
    - start / stop / restart work
    - logs are visible
-6. If you previously used the older `/home/<user>/hestiacp_nodejs_config` location, remove the old leftover directory only after the domain-scoped config under `web/<domain>/private/hestiacp_nodejs_config` is confirmed working.
+7. If you previously used the older `/home/<user>/hestiacp_nodejs_config` location, remove the old leftover directory only after the domain-scoped config under `web/<domain>/private/hestiacp_nodejs_config` is confirmed working.
 
 If you are updating from a very old plugin revision, review the migration section below as well.
 

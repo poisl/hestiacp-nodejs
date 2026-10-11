@@ -25,7 +25,7 @@ class NodeJsSetup extends BaseSetup
     protected array $info = [
         'name' => 'NodeJs',
         'group' => 'node',
-        'version' => '1.2.2',
+        'version' => '1.2.3',
         'thumbnail' => 'nodejs.png',
     ];
 
