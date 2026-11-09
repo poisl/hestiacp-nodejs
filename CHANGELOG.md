@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.2.4
+
+### Fixed
+
+- Node.js status now reports PM2's recorded runtime version, falling back to Node.js in the lifecycle command environment, instead of the potentially outdated installer selection.
+
 ## 1.2.3
 
 ### Fixed

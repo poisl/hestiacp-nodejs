@@ -132,10 +132,30 @@ nodejs_format_uptime() {
 	echo "${days}d ${hours}h"
 }
 
+nodejs_runtime_version() {
+	local process_json=${1:-} version
+
+	# PM2 records the runtime used by the application, which can differ from
+	# the version selected when the Quick Install App configuration was saved.
+	version="$(echo "$process_json" | jq -r '.pm2_env.node_version // empty')"
+	if [[ "$version" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+		echo "$version"
+		return
+	fi
+
+	# Shell-based start scripts and apps not yet known to PM2 may not have
+	# runtime metadata. Use the same user and PATH as the lifecycle commands.
+	version="$(sudo -u "$user" -H env PATH="/usr/local/bin:/usr/bin:/bin" node --version 2>/dev/null)"
+	if [[ "$version" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+		echo "$version"
+	fi
+}
+
 nodejs_print_status() {
-	local process_json status format uptime
+	local process_json status format uptime node_version
 	format=${1:-text}
 	process_json="$(nodejs_pm2_process)"
+	node_version="$(nodejs_runtime_version "$process_json")"
 	status='stopped'
 	uptime=''
 
@@ -147,7 +167,7 @@ nodejs_print_status() {
 	if [ "$format" = 'json' ]; then
 		jq -n \
 			--arg status "$status" \
-			--arg node_version "$NODE_VERSION" \
+			--arg node_version "$node_version" \
 			--arg port "$PORT" \
 			--arg pm2_name "$PM2_NAME" \
 			--arg app_dir "$APP_DIR" \
@@ -162,7 +182,7 @@ nodejs_print_status() {
 	fi
 
 	echo "STATUS=$status"
-	echo "NODE_VERSION=$NODE_VERSION"
+	echo "NODE_VERSION=$node_version"
 	echo "PORT=$PORT"
 	echo "PM2_NAME=$PM2_NAME"
 	echo "APP_DIR=$APP_DIR"
